@@ -1462,6 +1462,7 @@ body {
   z-index: 20; /* Higher z-index to ensure link is above other elements */
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(229, 9, 20, 0.3);
+  border: 2px solid white; /* <-- Add this line to apply white border to all tutorial-link */
 }
 
 .tutorial-link:hover {
@@ -2213,4 +2214,36 @@ body {
 [data-theme="light"] .gmail-notice p,
 [data-theme="light"] .gmail-notice li {
   color: var(--color-text-secondary);
+}
+
+/* Styles for the new household update status messages */
+#household-status .success-message,
+#household-status .error-message {
+  padding: 16px;
+  border-radius: var(--radius-base);
+  margin-top: 16px;
+  text-align: center;
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+#household-status .success-message {
+  background-color: rgba(var(--color-success-rgb), 0.1);
+  border-color: rgba(var(--color-success-rgb), 0.5);
+  color: var(--color-success);
+}
+
+#household-status .error-message {
+  background-color: rgba(var(--color-error-rgb), 0.1);
+  border-color: rgba(var(--color-error-rgb), 0.5);
+  color: var(--color-error);
+}
+
+/* Ensure the loader inside the button is styled correctly */
+.btn .loader {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+    border-top-color: var(--color-btn-primary-text);
 }

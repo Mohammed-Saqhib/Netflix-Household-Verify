@@ -5,6 +5,7 @@ const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const dotenv = require('dotenv');
 const path = require('path');
+const https = require('https');
 
 // Load environment variables
 dotenv.config();
@@ -80,6 +81,20 @@ function extractNetflixCode(body) {
   }
   
   console.log('No verification code found in email body');
+  return null;
+}
+
+// Function to find the Netflix household verification URL in an email body
+function extractVerificationLink(body) {
+  console.log('Searching for Netflix household update link...');
+  // This regex looks for the specific URL format used by Netflix for household updates
+  const linkPattern = /(https:\/\/www\.netflix\.com\/household\/update\?[a-zA-Z0-9_=&-]+)/i;
+  const match = body.match(linkPattern);
+  if (match && match[1]) {
+    console.log('✅ Found household update link:', match[1]);
+    return match[1];
+  }
+  console.log('❌ No household update link found in email body.');
   return null;
 }
 
@@ -277,36 +292,34 @@ app.post('/api/fetch-verification', async (req, res) => {
                       ['OR',
                         ['OR',
                           ['OR',
-                            ['OR',
-                              ['FROM', 'info@netflix.com'], 
-                              ['FROM', 'netflix@netflix.com']
-                            ],
-                            ['FROM', 'Netflix']
+                            ['FROM', 'info@netflix.com'], 
+                            ['FROM', 'netflix@netflix.com']
                           ],
-                          ['FROM', 'no-reply@netflix.com']
+                          ['FROM', 'Netflix']
                         ],
-                        ['FROM', 'Mohammed Saqhib']
+                        ['FROM', 'no-reply@netflix.com']
                       ],
-                      ['FROM', 'Saqhib']
+                      ['FROM', 'Mohammed Saqhib']
                     ],
-                    ['FROM', 'msaqhib76@gmail.com']
+                    ['FROM', 'Saqhib']
                   ],
-                  ['FROM', 'msaqhib04@gmail.com']
+                  ['FROM', 'msaqhib76@gmail.com']
                 ],
-                ['SUBJECT', 'Netflix']
+                ['FROM', 'msaqhib04@gmail.com']
               ],
-              ['SUBJECT', 'verification']
+              ['SUBJECT', 'Netflix']
             ],
+            ['SUBJECT', 'verification']
+          ],
+          ['OR',
             ['OR',
               ['OR',
-                ['OR',
-                  ['SUBJECT', 'Verify'],
-                  ['SUBJECT', 'Your Netflix']
-                ],
-                ['SUBJECT', 'Verification Code']
+                ['SUBJECT', 'Verify'],
+                ['SUBJECT', 'Your Netflix']
               ],
-              ['SUBJECT', 'Household']
-            ]
+              ['SUBJECT', 'Verification Code']
+            ],
+            ['SUBJECT', 'Household']
           ]
         ];
         
@@ -530,6 +543,85 @@ app.post('/api/fetch-verification', async (req, res) => {
   }
 });
 
+// NEW API ENDPOINT: To automatically find and "click" the household update link
+app.post('/api/update-household', (req, res) => {
+    const email = req.body.email || DEFAULT_EMAIL;
+    const password = req.body.password || DEFAULT_PASSWORD;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    console.log(`Starting AUTOMATIC household update process for: ${email}`);
+
+    let imapConfig;
+    if (email.endsWith('@gmail.com')) {
+        imapConfig = { user: email, password, host: 'imap.gmail.com', port: 993, tls: true, tlsOptions: { rejectUnauthorized: false } };
+    } else if (email.endsWith('@outlook.com') || email.endsWith('@hotmail.com')) {
+        imapConfig = { user: email, password, host: 'outlook.office365.com', port: 993, tls: true, tlsOptions: { rejectUnauthorized: false } };
+    } else {
+        return res.status(400).json({ success: false, message: 'Unsupported email provider. Use Gmail or Outlook.' });
+    }
+
+    const imap = new Imap(imapConfig);
+
+    imap.once('ready', function() {
+        imap.openBox('INBOX', false, function(err, box) {
+            if (err) {
+                imap.end();
+                return res.status(500).json({ success: false, message: 'Failed to open inbox.' });
+            }
+
+            // Search for the specific, unread Netflix email
+            imap.search([ 'UNSEEN', ['FROM', 'info@netflix.com'], ['SUBJECT', 'Update Netflix Household'] ], function(err, results) {
+                if (err || !results || results.length === 0) {
+                    imap.end();
+                    return res.json({ success: false, message: 'No new "Update Household" email found. Please send it from your TV first.' });
+                }
+
+                // Fetch the newest email found
+                const fetch = imap.fetch(results.slice(-1), { bodies: '', markSeen: true });
+                fetch.on('message', function(msg) {
+                    msg.on('body', function(stream) {
+                        simpleParser(stream, async (err, parsed) => {
+                            if (err) {
+                                imap.end();
+                                return res.status(500).json({ success: false, message: 'Error parsing email.' });
+                            }
+
+                            const body = parsed.text || parsed.html || '';
+                            const verificationLink = extractVerificationLink(body);
+
+                            if (verificationLink) {
+                                // "Click" the link by making an HTTPS GET request
+                                https.get(verificationLink, (apiRes) => {
+                                    console.log(`Household update link clicked. Netflix server responded with status: ${apiRes.statusCode}`);
+                                    imap.end();
+                                    res.json({ success: true, message: 'Household updated successfully! Check your TV.' });
+                                }).on('error', (e) => {
+                                    console.error(`Error activating link: ${e.message}`);
+                                    imap.end();
+                                    res.status(500).json({ success: false, message: 'Found the link, but failed to activate it.' });
+                                });
+                            } else {
+                                imap.end();
+                                res.json({ success: false, message: 'Found the email, but no verification link was inside.' });
+                            }
+                        });
+                    });
+                });
+            });
+        });
+    });
+
+    imap.once('error', function(err) {
+        console.error('IMAP error during household update:', err);
+        res.status(401).json({ success: false, message: 'IMAP connection error. Please check your credentials.' });
+    });
+
+    imap.connect();
+});
+
 // Logout and clear IMAP connection
 app.post('/api/logout', (req, res) => {
   const { sessionId } = req.body;
@@ -554,13 +646,32 @@ app.get('/', (req, res) => {
 // Start the server with better error handling and port management
 let PORT = process.env.PORT || 3000;
 const MAX_PORT_ATTEMPTS = 10;
+const MAX_PORT_VALUE = 65535;
 
 function startServer(port, attempt = 1) {
+  // Ensure port is a number and within valid range
+  port = parseInt(port, 10);
+  
+  // Check if port is valid
+  if (isNaN(port) || port < 0 || port > MAX_PORT_VALUE) {
+    console.error(`Invalid port number: ${port}. Using default port 3000.`);
+    port = 3000;
+  }
+  
   const server = app.listen(port)
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
-        console.log(`Port ${port} is busy, trying port ${port + 1}...`);
-        startServer(port + 1, attempt + 1);
+        // Increment by 1 instead of concatenating
+        const nextPort = port + 1;
+        
+        // Safety check to ensure port stays within valid range
+        if (nextPort > MAX_PORT_VALUE) {
+          console.error(`Port number exceeded maximum value. Using port 3000.`);
+          startServer(3000, attempt + 1);
+        } else {
+          console.log(`Port ${port} is busy, trying port ${nextPort}...`);
+          startServer(nextPort, attempt + 1);
+        }
       } else {
         console.error('Failed to start server:', err);
         process.exit(1);

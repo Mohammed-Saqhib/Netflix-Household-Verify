@@ -343,6 +343,45 @@
         </div>
     </section>
 
+    <!-- New Auto Household Update Section -->
+    <section id="auto-household-update" class="section auto-verify-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>📺 Update Household Automatically</h2>
+                <p>Verify your TV instantly. On your TV, select "Update Household" to send the email, then use this tool.</p>
+            </div>
+
+            <div class="method-card featured-card" id="household-auth-method">
+                <div class="method-card__header">
+                    <span class="method-card__emoji">🔗</span>
+                    <h3>Automatic Link Verification</h3>
+                </div>
+                <p class="method-card__description">Enter your Netflix account email and password. We'll find the "Update Household" email and click the verification link for you.</p>
+
+                <div class="email-auth-form">
+                    <form id="household-update-form">
+                        <div class="form-group">
+                            <label for="household-email" class="form-label">Netflix Email Address</label>
+                            <input type="email" id="household-email" class="form-control" placeholder="your.email@gmail.com" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="household-password" class="form-label">App Password</label>
+                            <input type="password" id="household-password" class="form-control" placeholder="Your app password" required>
+                            <small class="form-text">For Gmail, you must use an <a href="https://support.google.com/accounts/answer/185833" target="_blank">App Password</a>.</small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary btn--lg" id="verify-household-btn">Verify My TV as Household</button>
+                        </div>
+                    </form>
+                </div>
+                <div id="household-status" class="verification-status" style="display: none; margin-top: 20px;">
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- FAQ Section -->
     <section id="faq" class="section faq-section">
         <div class="container">

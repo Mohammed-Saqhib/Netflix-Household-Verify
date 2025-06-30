@@ -1422,3 +1422,62 @@ function addManualCodeOption() {
         }
     });
 }
+
+// Household update functionality
+function initHouseholdUpdate() {
+    const form = document.getElementById('household-update-form');
+    if (!form) return; // Exit if the form isn't on the page
+
+    const statusDiv = document.getElementById('household-status');
+    const emailInput = document.getElementById('household-email');
+    const passwordInput = document.getElementById('household-password');
+    const submitBtn = document.getElementById('verify-household-btn');
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const email = emailInput.value;
+        const password = passwordInput.value;
+        const originalBtnText = submitBtn.innerHTML;
+
+        // Disable button and show loading status
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<div class="loader" style="margin-right: 8px;"></div> Processing...';
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `<div class="status-indicator"><div class="loader"></div><span class="status-text">Connecting to your email... Please wait.</span></div>`;
+
+        fetch('/api/update-household', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="success-message">✅ ${data.message}</div>`;
+                showNotification('Household Updated Successfully!', 'success');
+            } else {
+                statusDiv.innerHTML = `<div class="error-message">❌ Error: ${data.message}</div>`;
+                showNotification(data.message, 'error');
+            }
+        })
+        .catch(err => {
+            console.error('Household update fetch error:', err);
+            const errorMessage = 'A server error occurred. Please try again later.';
+            statusDiv.innerHTML = `<div class="error-message">❌ ${errorMessage}</div>`;
+            showNotification(errorMessage, 'error');
+        })
+        .finally(() => {
+            // Re-enable the button
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnText;
+        });
+    });
+}
+
+// Add the call to your new function inside the main DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // ...existing code...
+    initEmailVerification();
+    initHouseholdUpdate(); // Add this line
+});
