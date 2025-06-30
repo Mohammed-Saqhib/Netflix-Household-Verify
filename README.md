@@ -181,3 +181,8 @@ Here’s what’s next on our journey:
 This project is rocking the [MIT License](https://www.google.com/search?q=LICENSE)\! Feel free to modify and share as much as you like\!
 
 -----
+
+Made with ❤️ by a coder who loves to build.
+For any questions or feedback, reach out at msaqhib76@gmail.com.
+
+-----
