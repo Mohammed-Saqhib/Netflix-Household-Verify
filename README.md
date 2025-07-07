@@ -6,6 +6,8 @@
 
 A Node.js application designed to streamline the process of retrieving and displaying Netflix verification codes and household update links directly from a user's email inbox (Gmail, Outlook, or Hotmail). This tool aims to make the Netflix verification process more seamless and efficient.
 
+**Note: This project is part of development work created to showcase development skills and technical expertise.**
+
 ## Features You'll Love ❤️
 
 -----
@@ -182,7 +184,13 @@ This project is rocking the [MIT License](https://www.google.com/search?q=LICENS
 
 -----
 
-Made with ❤️ by a coder who loves to build.
-For any questions or feedback, reach out at msaqhib76@gmail.com.
+Made with ❤️ by a developer passionate about building innovative solutions.
+
+**Developer Contact Details:**
+- **Name:** Mohammed Saqhib
+- **Phone:** +91 6239121164
+- **Email:** msaqhib76@gmail.com
+
+For any questions, feedback, or collaboration opportunities, feel free to reach out!
 
 -----
