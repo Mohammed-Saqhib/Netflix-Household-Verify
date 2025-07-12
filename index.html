@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netflix Household Verify - Device Verification Guide</title>
+    <link rel="stylesheet" href="style.css">
+    <meta name="description" content="Step-by-step guide to verify your devices for Netflix's household verification system">
+    <!-- Add preload for critical fonts -->
+    <link rel="preload" href="https://assets.nflxext.com/ffe/siteui/fonts/netflix-sans/v3/NetflixSans_W_Rg.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="https://assets.nflxext.com/ffe/siteui/fonts/netflix-sans/v3/NetflixSans_W_Md.woff2" as="font" type="font/woff2" crossorigin>
+    <!-- Add favicon -->
+    <link rel="icon" href="https://assets.nflxext.com/us/ffe/siteui/common/icons/nficon2016.ico">
+    <!-- Add preconnect for better performance -->
+    <link rel="preconnect" href="https://assets.nflxext.com">
+    <style>
+        /* Netflix Intro Animation - SVG N */
+        .nf-intro-overlay {
+            position: fixed;
+            z-index: 2000;
+            inset: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            transition: opacity 0.8s ease-in-out;
+            overflow: hidden;
+        }
+        .netflix-intro {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .netflix-logo-svg {
+            width: 160px;
+            height: 160px;
+            display: block;
+            opacity: 0;
+            transform: scale(0.2);
+            filter: drop-shadow(0 0 40px #e50914cc);
+            animation: netflixNImg 1.2s cubic-bezier(0.23, 1, 0.32, 1) 0.2s forwards;
+        }
+        @keyframes netflixNImg {
+            0% {
+                opacity: 0;
+                transform: scale(0.2);
+                filter: blur(8px) drop-shadow(0 0 0 #e50914);
+            }
+            40% {
+                opacity: 1;
+                transform: scale(1.15);
+                filter: blur(0px) drop-shadow(0 0 60px #e50914cc);
+            }
+            60% {
+                opacity: 1;
+                transform: scale(0.98);
+                filter: blur(0px) drop-shadow(0 0 40px #e50914cc);
+            }
+            80% {
+                opacity: 1;
+                transform: scale(1.02);
+                filter: blur(0px) drop-shadow(0 0 30px #e50914cc);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+                filter: blur(0px) drop-shadow(0 0 20px #e50914cc);
+            }
+        }
+        .nf-intro-title {
+            font-family: 'Netflix Sans', 'Arial Black', Arial, sans-serif;
+            font-weight: 900;
+            font-size: 2.5vw;
+            color: #fff;
+            letter-spacing: 0.08em;
+            text-align: center;
+            margin-top: 32px;
+            opacity: 0;
+            animation: netflixTitle 1s ease-out 1.3s forwards;
+        }
+        @keyframes netflixTitle {
+            0% { 
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            100% { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .nf-intro-overlay.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+        @media (max-width: 600px) {
+            .netflix-logo-svg {
+                width: 90px;
+                height: 90px;
+            }
+            .nf-intro-title {
+                font-size: 5vw;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Netflix Intro Overlay with SVG N -->
+    <div class="nf-intro-overlay" id="nf-intro-overlay">
+        <div class="netflix-intro">
+            <svg class="netflix-logo-svg" viewBox="0 0 512 512">
+                <defs>
+                    <linearGradient id="netflixRed" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#E50914"/>
+                        <stop offset="100%" stop-color="#B1060F"/>
+                    </linearGradient>
+                </defs>
+                <rect width="512" height="512" fill="#000"/>
+                <polygon points="120,80 200,80 392,432 312,432" fill="url(#netflixRed)"/>
+                <rect x="120" y="80" width="80" height="352" fill="#E50914"/>
+                <rect x="312" y="80" width="80" height="352" fill="#E50914"/>
+            </svg>
+            <div class="nf-intro-title">Netflix Household Verify</div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header__content">
+                <div class="logo">
+                    <h1>Netflix Household Verify</h1>
+                </div>
+                <button class="mobile-menu-toggle" aria-label="Toggle mobile menu">☰</button>
+            </div>
+            <!-- Navigation bar -->
+            <nav class="nav" id="main-nav">
+                <a href="#verification-options" class="nav__link" data-tooltip="All verification methods">Verification Methods</a>
+                <a href="#auto-verify" class="nav__link" data-tooltip="Automatic verification">Get OTP Instantly</a>
+                <a href="#auto-household-update" class="nav__link" data-tooltip="Update household automatically">Update Household</a>
+                <a href="#netflix-email-search" class="nav__link" data-tooltip="Search Netflix emails">Netflix Email Search</a>
+                <a href="#faq" class="nav__link" data-tooltip="Frequently asked questions">FAQ</a>
+            </nav>
+            <div class="menu-overlay"></div>
+        </div>
+    </header>
+
+    <!-- Hero Section with enhanced design -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero__content">
+                <h1 class="hero__title">Instant Netflix Verification</h1>
+                <p class="hero__description">Get your Netflix verification code directly on this site! Connect your Gmail account and verify your device in seconds, or search for Netflix emails.</p>
+                <div class="hero__buttons">
+                    <a href="#auto-verify" class="btn btn--primary btn--lg" data-tooltip="Quick OTP verification">🔑 Get Verification Code</a>
+                    <a href="#netflix-email-search" class="btn btn--secondary btn--lg" data-tooltip="Search Netflix emails">� Search Netflix Emails</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Combined Verification Methods Section -->
+    <section id="verification-options" class="section verify-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>📲 VERIFICATION OPTIONS</h2>
+                <p>Choose the verification method that works best for you:</p>
+            </div>
+            
+            <div class="verification-methods">
+                <!-- Traveling Option -->
+                <div class="method-card" id="traveling-method">
+                    <div class="method-card__header">
+                        <span class="method-card__emoji">🎒</span>
+                        <h3>Using I am traveling option</h3>
+                        <a href="https://youtu.be/Zib2Z4IGTM4" target="_blank" class="tutorial-link" 
+                           onclick="window.open(this.href, '_blank'); return false;">
+                            🎓 Watch Tutorial
+                        </a>
+                    </div>
+                    <p class="method-card__description">Verify your device when you're traveling or away from home</p>
+                    <button class="btn btn--outline view-steps-btn" data-method="traveling">View Steps</button>
+                    
+                    <div class="steps-container" id="traveling-steps">
+                        <ol class="steps-list">
+                            <li>Open Netflix on your device</li>
+                            <li>When prompted with 'Device not part of household', select 'I'm Traveling'</li>
+                            <li>Choose to receive verification code via email or text</li>
+                            <li>Check your email/phone for the verification code</li>
+                            <li>Enter the code on your device within 15 minutes</li>
+                            <li>Your device will be verified for temporary use</li>
+                        </ol>
+                        <div class="auto-verify-hint">
+                            <p><strong>💡 Pro Tip:</strong> Use our <a href="#auto-verify">Instant OTP Verification</a> to get your code instantly without checking your email!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Update Household Option -->
+                <div class="method-card" id="household-method">
+                    <div class="method-card__header">
+                        <span class="method-card__emoji">🔼</span>
+                        <h3>Using update household</h3>
+                        <a href="https://youtu.be/lIT9fu-voe0" target="_blank" class="tutorial-link" 
+                           onclick="window.open(this.href, '_blank'); return false;">
+                            🎓 Watch Tutorial
+                        </a>
+                    </div>
+                    <p class="method-card__description">Update your Netflix household to include this device permanently</p>
+                    <button class="btn btn--outline view-steps-btn" data-method="household">View Steps</button>
+                    
+                    <div class="steps-container" id="household-steps">
+                        <ol class="steps-list">
+                            <li>From Netflix home screen, press back button to open menu</li>
+                            <li>Navigate to 'Get Help' > 'Manage Netflix Household'</li>
+                            <li>Select 'Update Netflix Household'</li>
+                            <li>Choose 'Send Email' or 'Send Text' for verification</li>
+                            <li>Check your email/text for verification link</li>
+                            <li>Click 'Yes, This Was Me' in email or tap link in text</li>
+                            <li>Select 'Confirm Update' to complete the process</li>
+                        </ol>
+                        <div class="auto-verify-hint">
+                            <p><strong>💡 Pro Tip:</strong> Use our <a href="#auto-verify">Instant OTP Verification</a> tool to automatically detect verification links!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- QR Code Method -->
+                <div class="method-card" id="qr-code-method">
+                    <div class="method-card__header">
+                        <span class="method-card__emoji">📱</span>
+                        <h3>QR Code Verification</h3>
+                        <a href="https://youtube.com/shorts/7572dgZxbTE" target="_blank" class="tutorial-link" 
+                           style="border: 2px solid white; font-weight: bold;"
+                           onclick="window.open(this.href, '_blank'); return false;">
+                            🎓 Watch Tutorial
+                        </a>
+                    </div>
+                    <p class="method-card__description">Verify your mobile device with a quick QR code scan</p>
+                    <button class="btn btn--outline view-steps-btn" data-method="qr-code">View Steps</button>
+                    
+                    <div class="steps-container" id="qr-code-steps">
+                        <ol class="steps-list">
+                            <li>Open Netflix on your mobile device</li>
+                            <li>When prompted, tap 'Watch Temporarily'</li>
+                            <li>Select 'Send Email' or 'Send Text'</li>
+                            <li>Receive verification code via your chosen method</li>
+                            <li>Enter the code in the Netflix app</li>
+                            <li>Tap 'Continue to Netflix' to start watching</li>
+                        </ol>
+                        <div class="auto-verify-hint">
+                            <p><strong>💡 Pro Tip:</strong> Use our <a href="#auto-verify">Instant OTP Verification</a> tool to get your verification code immediately!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Auto-Verification Section (Enhanced) -->
+    <section id="auto-verify" class="section auto-verify-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>🔑 INSTANT VERIFICATION CODE</h2>
+                <p>Get your Netflix verification code directly without checking your email</p>
+            </div>
+
+            <div class="method-card featured-card" id="email-auth-method">
+                <div class="method-card__header">
+                    <span class="method-card__emoji">✉️</span>
+                    <h3>Email Auto-Detection</h3>
+                </div>
+                <p class="method-card__description">Enter the email address connected to your Netflix account to instantly see verification codes</p>
+                
+                <div class="email-auth-form">
+                    <form id="email-auth-form">
+                        <div id="default-credentials-notice" style="display: none;" class="success-message">
+                            <p>✅ Pre-configured email detected: <span id="default-email"></span></p>
+                            <button type="button" class="btn btn--primary" id="use-default-btn">Use Pre-configured Email</button>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="email" class="form-label">Netflix Email Address</label>
+                            <input type="email" id="email" name="email" class="form-control" placeholder="your.email@gmail.com" required>
+                            <small class="form-text">Enter the email address connected to your Netflix account</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="password" class="form-label">App Password</label>
+                            <input type="password" id="password" name="password" class="form-control" placeholder="Your app password" required>
+                            <small class="form-text">For Gmail, use an <a href="https://support.google.com/accounts/answer/185833" target="_blank">App Password</a>, not your regular password</small>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary btn--lg" id="connect-email-btn">Get Verification Code</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <div class="verification-status" style="display: none;">
+                    <div class="status-indicator">
+                        <div class="loader"></div>
+                        <span class="status-text">Checking for Netflix verification code...</span>
+                    </div>
+                    <div class="verification-results" style="display: none;">
+                        <div class="verification-code-display">
+                            <h4>Your Netflix Verification Code:</h4>
+                            <div class="code-display"></div>
+                            <p class="code-status">✅ Code copied to clipboard</p>
+                        </div>
+                        <button class="btn btn--primary" id="fetch-again-btn">Check for New Code</button>
+                        <button class="btn btn--outline" id="logout-btn">Disconnect Email</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="how-it-works">
+                <h3>How It Works</h3>
+                <ol>
+                    <li>Enter your Netflix-connected email address</li>
+                    <li>We securely check for recent Netflix verification emails</li>
+                    <li>Your verification code appears instantly on this page</li>
+                    <li>Use the code to verify your Netflix device</li>
+                </ol>
+            </div>
+            
+            <div class="privacy-notice">
+                <h4>🔒 Privacy Notice</h4>
+                <p>Your email credentials are only used to connect to your mailbox and are never stored on our servers. 
+                All processing happens securely in your current session only.</p>
+            </div>
+
+            <div class="gmail-notice">
+                <h4>📧 Gmail Account Information</h4>
+                <p><strong>Good news!</strong> As of January 2025, IMAP access is always enabled in Gmail accounts. You don't need to manually enable it anymore.</p>
+                <ul>
+                    <li><strong>Using 2-Step Verification?</strong> You'll need to create an <a href="https://support.google.com/accounts/answer/185833" target="_blank">App Password</a> instead of using your regular Gmail password.</li>
+                    <li><strong>Google Workspace accounts</strong> (business or education) may require administrator approval for IMAP access.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- New Auto Household Update Section -->
+    <section id="auto-household-update" class="section auto-verify-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>📺 Update Household Automatically</h2>
+                <p>Verify your TV instantly. On your TV, select "Update Household" to send the email, then use this tool.</p>
+            </div>
+
+            <div class="method-card featured-card" id="household-auth-method">
+                <div class="method-card__header">
+                    <span class="method-card__emoji">🔗</span>
+                    <h3>Automatic Link Verification</h3>
+                </div>
+                <p class="method-card__description">Enter your Netflix account email and password. We'll find the "Update Household" email and click the verification link for you.</p>
+
+                <div class="email-auth-form">
+                    <form id="household-update-form">
+                        <div class="form-group">
+                            <label for="household-email" class="form-label">Netflix Email Address</label>
+                            <input type="email" id="household-email" class="form-control" placeholder="your.email@gmail.com" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="household-password" class="form-label">App Password</label>
+                            <input type="password" id="household-password" class="form-control" placeholder="Your app password" required>
+                            <small class="form-text">For Gmail, you must use an <a href="https://support.google.com/accounts/answer/185833" target="_blank">App Password</a>.</small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary btn--lg" id="verify-household-btn">Verify My TV as Household</button>
+                        </div>
+                    </form>
+                </div>
+                <div id="household-status" class="verification-status" style="display: none; margin-top: 20px;">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Netflix Email Search Section -->
+    <section id="netflix-email-search" class="section auto-verify-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>📧 NETFLIX EMAIL SEARCH</h2>
+                <p>Search your email for the latest Netflix-related emails and get detailed information</p>
+            </div>
+
+            <div class="method-card featured-card" id="netflix-search-method">
+                <div class="method-card__header">
+                    <span class="method-card__emoji">🔍</span>
+                    <h3>Netflix Email Search</h3>
+                </div>
+                <p class="method-card__description">Enter your email and password to search for the latest Netflix email with subject, sender, and time information</p>
+
+                <div class="email-auth-form">
+                    <form id="netflix-search-form">
+                        <div class="form-group">
+                            <label for="search-email" class="form-label">Email Address</label>
+                            <input type="email" id="search-email" class="form-control" placeholder="your.email@gmail.com" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="search-password" class="form-label">App Password</label>
+                            <input type="password" id="search-password" class="form-control" placeholder="Your app password" required>
+                            <small class="form-text">For Gmail, use an <a href="https://support.google.com/accounts/answer/185833" target="_blank">App Password</a></small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn--primary btn--lg" id="search-netflix-btn">Search Netflix Emails</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="netflix-search-status" class="verification-status" style="display: none;">
+                    <div class="status-indicator">
+                        <div class="loader"></div>
+                        <span class="status-text">Searching for Netflix emails...</span>
+                    </div>
+                    <div class="netflix-search-results" style="display: none;">
+                        <div class="email-details-display">
+                            <h4>Latest Netflix Email Found:</h4>
+                            <div class="email-info">
+                                <div class="info-item">
+                                    <strong>Subject:</strong>
+                                    <span id="email-subject">-</span>
+                                </div>
+                                <div class="info-item">
+                                    <strong>From:</strong>
+                                    <span id="email-from">-</span>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Time:</strong>
+                                    <span id="email-time">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn--primary" id="search-again-btn">Search Again</button>
+                        <button class="btn btn--outline" id="disconnect-search-btn">Disconnect</button>
+                    </div>
+                </div>
+
+                <div class="how-it-works">
+                    <h3>How Netflix Email Search Works</h3>
+                    <ol>
+                        <li>Enter your email address and app password</li>
+                        <li>We securely search your mailbox for Netflix-related emails</li>
+                        <li>The latest Netflix email details are displayed with subject, sender, and timestamp</li>
+                        <li>All information is processed securely and not stored</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="section faq-section">
+        <div class="container">
+            <div class="section__header">
+                <h2>Frequently Asked Questions</h2>
+                <p>Common issues and troubleshooting tips</p>
+            </div>
+
+            <div class="faq-grid">
+                <div class="faq-item">
+                    <button class="faq-question" data-faq="code-not-received">
+                        <span>Verification code not received</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer" id="code-not-received">
+                        <ul>
+                            <li>Check spam/junk email folder</li>
+                            <li>Ensure phone number is correct in Netflix account</li>
+                            <li>Wait a few minutes and try again</li>
+                            <li>Request new verification code</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question" data-faq="code-expired">
+                        <span>Code expired (15 minutes passed)</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer" id="code-expired">
+                        <ul>
+                            <li>Request a new verification code</li>
+                            <li>Complete verification process quickly</li>
+                            <li>Ensure stable internet connection</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question" data-faq="still-outside">
+                        <span>Still showing as outside household</span>
+                        <span class="faq-icon">+</span>
+                    </button>
+                    <div class="faq-answer" id="still-outside">
+                        <ul>
+                            <li>Verify you're using correct Netflix account</li>
+                            <li>Check if using VPN (disable if so)</li>
+                            <li>Ensure device is on same network as main TV</li>
+                            <li>Contact Netflix support for assistance</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Household Rules -->
+            <div class="household-rules">
+                <h3>Netflix Household Rules</h3>
+                <div class="rules-grid">
+                    <div class="rule-card">
+                        <h4>Basics</h4>
+                        <ul>
+                            <li>Netflix Household = devices on same internet connection</li>
+                            <li>One account can have only one household</li>
+                            <li>Devices automatically added when used on household network</li>
+                            <li>Traveling exceptions available for temporary use</li>
+                        </ul>
+                    </div>
+                    <div class="rule-card">
+                        <h4>Limitations</h4>
+                        <ul>
+                            <li>31-day limit for devices outside household</li>
+                            <li>Must verify periodically when traveling</li>
+                            <li>Extra member fees apply for permanent outside users</li>
+                            <li>Some content may vary by location</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer__content">
+                <p>&copy; 2025 Netflix Household Verify - Unofficial verification guide</p>
+                <p>For official support, visit <a href="https://help.netflix.com" target="_blank">Netflix Help Center</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to top button -->
+    <button id="back-to-top" class="scroll-to-top btn btn--primary" aria-label="Scroll to top">↑</button>
+
+    <script src="app.js"></script>
+    <script>
+        // Mobile menu functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const mobileMenuToggle = document.querySelector('.mobile-menu-toggle');
+            const menuOverlay = document.querySelector('.menu-overlay');
+            const nav = document.getElementById('main-nav');
+            const navLinks = nav.querySelectorAll('.nav__link');
+            
+            // Toggle mobile menu
+            mobileMenuToggle.addEventListener('click', function() {
+                nav.classList.add('active');
+                menuOverlay.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            });
+            
+            // Close mobile menu
+            function closeMenu() {
+                nav.classList.remove('active');
+                menuOverlay.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+            
+            menuOverlay.addEventListener('click', closeMenu);
+            
+            // Close menu when a nav link is clicked
+            navLinks.forEach(link => {
+                link.addEventListener('click', closeMenu);
+            });
+        });
+
+        // Netflix Intro Animation Logic
+        window.addEventListener('DOMContentLoaded', function() {
+            const overlay = document.getElementById('nf-intro-overlay');
+            
+            // Handle intro animation
+            setTimeout(() => {
+                overlay.classList.add('hide');
+            }, 2300);
+            
+            // Remove overlay and initialize components after animation completes
+            setTimeout(() => {
+                // Only remove after fade out completes
+                if (overlay && overlay.parentNode) {
+                    overlay.parentNode.removeChild(overlay);
+                }
+                
+                // Ensure FAQ functionality works properly
+                if (typeof initializeFAQItems === 'function') initializeFAQItems();
+                if (typeof initFAQAccordion === 'function') initFAQAccordion();
+                
+                // Force FAQ display setup for better reliability
+                const faqAnswers = document.querySelectorAll('.faq-answer');
+                faqAnswers.forEach(answer => {
+                    answer.style.display = 'none';
+                    answer.classList.remove('open');
+                });
+                
+                document.querySelectorAll('.faq-icon').forEach(icon => {
+                    icon.textContent = '+';
+                    icon.classList.remove('rotate');
+                });
+                
+                // Force initialize buttons
+                document.querySelectorAll('.view-steps-btn').forEach(btn => {
+                    if (!btn.hasAttribute('data-initialized')) {
+                        btn.setAttribute('data-initialized', 'true');
+                        console.log('Initializing button:', btn.getAttribute('data-method'));
+                    }
+                });
+            }, 3100); // Slightly longer delay to ensure fade out completes
+        });
+    </script>
+</body>
+</html>

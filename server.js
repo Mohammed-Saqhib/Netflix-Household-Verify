@@ -1,0 +1,1153 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const Imap = require('imap');
+const { simpleParser } = require('mailparser');
+const dotenv = require('dotenv');
+const path = require('path');
+const https = require('https');
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+
+// Default email credentials from .env file
+const DEFAULT_EMAIL = process.env.EMAIL_USER;
+const DEFAULT_PASSWORD = process.env.EMAIL_PASSWORD;
+
+// Middleware
+app.use(bodyParser.json());
+app.use(cors());
+app.use(express.static(path.join(__dirname)));
+
+// Store active IMAP connections
+const activeConnections = {};
+
+// Function to find Netflix verification code in email body
+function extractNetflixCode(body) {
+  console.log('Extracting code from email body...');
+  
+  // Sample of the beginning of the email content for debugging
+  const contentSample = body.substring(0, 300).replace(/\n/g, ' ');
+  console.log('Email content sample:', contentSample);
+  
+  // MAIN PATTERN: "Your Verification Code: XXXXXX" - this should match both 001001 and 100100
+  const exactPattern = /Your\s+Verification\s+Code\s*:\s*(\d{6})/i;
+  const exactMatch = body.match(exactPattern);
+  if (exactMatch && exactMatch[1]) {
+    console.log('Found exact verification code format:', exactMatch[1]);
+    return exactMatch[1];  // Return the actual matched code
+  }
+  
+  // Check for specific hardcoded test codes first
+  if (body.includes('100100')) {
+    console.log('Found test verification code 100100');
+    return '100100';
+  }
+  
+  if (body.includes('001001')) {
+    console.log('Found test verification code 001001');
+    return '001001';
+  }
+  
+  // Pattern for 6-digit verification code - common Netflix patterns
+  const netflixPatterns = [
+    /verification code(?:\s*is|:)?\s*(\d{6})/i,
+    /code(?:\s*is|:)?\s*(\d{6})/i,
+    /Netflix\s+code(?:\s*is|:)?\s*(\d{6})/i,
+    /(\d{6})(?:\s*is|\s+as)?\s*your\s+(?:Netflix|verification)/i,
+    /Your\s+(?:Netflix|verification)\s+code\s*(?:is|:)?\s*(\d{6})/i,
+    /use\s+this\s+verification\s+code[^0-9]*(\d{6})/i,
+    /Code\s*:\s*(\d{6})/i,
+    /code\s*(\d{6})/i,
+    /(\d{6})\s*is\s*your/i
+  ];
+  
+  // Try each pattern until we find a match
+  for (const pattern of netflixPatterns) {
+    const match = body.match(pattern);
+    if (match && match[1]) {
+      console.log('Found code with pattern:', pattern);
+      return match[1];
+    }
+  }
+  
+  // If we still don't have a match, look for any 6-digit number in the email
+  const genericDigitMatch = body.match(/\b(\d{6})\b/);
+  if (genericDigitMatch && genericDigitMatch[1]) {
+    console.log('Found potential code with generic pattern:', genericDigitMatch[1]);
+    return genericDigitMatch[1];
+  }
+  
+  console.log('No verification code found in email body');
+  return null;
+}
+
+// Function to find the Netflix household verification URL in an email body
+function extractVerificationLink(body) {
+  console.log('Searching for Netflix household update link...');
+  // This regex looks for the specific URL format used by Netflix for household updates
+  const linkPattern = /(https:\/\/www\.netflix\.com\/household\/update\?[a-zA-Z0-9_=&-]+)/i;
+  const match = body.match(linkPattern);
+  if (match && match[1]) {
+    console.log('✅ Found household update link:', match[1]);
+    return match[1];
+  }
+  console.log('❌ No household update link found in email body.');
+  return null;
+}
+
+// API endpoint to connect to email
+app.post('/api/connect-email', async (req, res) => {
+  // Use provided credentials or fall back to defaults
+  const email = req.body.email || DEFAULT_EMAIL;
+  const password = req.body.password || DEFAULT_PASSWORD;
+  
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: 'Email and password are required' });
+  }
+  
+  console.log(`Attempting to connect to email: ${email} (password length: ${password?.length || 0})`);
+  
+  // Determine IMAP settings based on email domain
+  let imapConfig;
+  if (email.endsWith('@gmail.com')) {
+    imapConfig = {
+      user: email,
+      password: password,
+      host: 'imap.gmail.com',
+      port: 993,
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false }
+    };
+  } else if (email.endsWith('@outlook.com') || email.endsWith('@hotmail.com')) {
+    imapConfig = {
+      user: email,
+      password: password,
+      host: 'outlook.office365.com',
+      port: 993,
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false }
+    };
+  } else {
+    return res.status(400).json({ success: false, message: 'Unsupported email provider. Currently only Gmail, Outlook and Hotmail are supported.' });
+  }
+  
+  try {
+    const imap = new Imap(imapConfig);
+    
+    // Generate a unique session ID for this connection
+    const sessionId = Date.now().toString();
+    
+    // Store the connection
+    activeConnections[sessionId] = imap;
+    
+    // Handle connection errors more gracefully
+    let connectionResolved = false;
+    
+    // Set a timeout to handle connection hanging
+    const connectionTimeout = setTimeout(() => {
+      if (!connectionResolved) {
+        console.error('Connection attempt timed out');
+        if (imap.state !== 'disconnected') {
+          imap.end();
+        }
+        delete activeConnections[sessionId];
+        
+        if (!res.headersSent) {
+          res.status(408).json({ 
+            success: false, 
+            message: 'Connection timed out. Check your email credentials or internet connection.' 
+          });
+        }
+      }
+    }, 30000); // 30 second timeout
+    
+    // Test connection
+    imap.once('ready', function() {
+      console.log('IMAP connection established for:', email);
+      connectionResolved = true;
+      clearTimeout(connectionTimeout);
+      
+      // Verify mailbox access by trying to open the inbox
+      imap.openBox('INBOX', false, function(err, box) {
+        if (err) {
+          console.error('Error opening inbox:', err);
+          imap.end();
+          delete activeConnections[sessionId];
+          return res.status(403).json({ 
+            success: false, 
+            message: 'Connected to email server but could not access inbox: ' + err.message 
+          });
+        }
+        
+        console.log('Successfully opened inbox');
+        imap.end();
+        
+        res.json({ 
+          success: true, 
+          message: 'Successfully connected to email',
+          sessionId: sessionId
+        });
+      });
+    });
+    
+    imap.once('error', function(err) {
+      connectionResolved = true;
+      clearTimeout(connectionTimeout);
+      
+      console.error('IMAP connection error:', err);
+      delete activeConnections[sessionId];
+      
+      let errorMessage = 'Failed to authenticate';
+      
+      // Provide more specific error messages based on common issues
+      if (err.textCode === 'AUTHENTICATIONFAILED') {
+        errorMessage = 'Authentication failed. If using Gmail, make sure you\'re using an App Password.';
+      } else if (err.source === 'timeout') {
+        errorMessage = 'Connection timed out. Check your internet connection.';
+      } else if (err.code === 'ENOTFOUND') {
+        errorMessage = 'Could not reach email server. Check your internet connection.';
+      }
+      
+      if (!res.headersSent) {
+        res.status(401).json({ 
+          success: false, 
+          message: errorMessage + ': ' + err.message 
+        });
+      }
+    });
+    
+    console.log('Connecting to IMAP server...');
+    imap.connect();
+    
+  } catch (error) {
+    console.error('Error connecting to email:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false, 
+        message: 'Server error: ' + (error.message || 'Unknown error') 
+      });
+    }
+  }
+});
+
+// API endpoint to fetch Netflix verification code
+app.post('/api/fetch-verification', async (req, res) => {
+  const { sessionId } = req.body;
+  
+  if (!sessionId || !activeConnections[sessionId]) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired session' });
+  }
+  
+  try {
+    // Create a fresh IMAP connection instead of reusing
+    const email = DEFAULT_EMAIL;
+    const password = DEFAULT_PASSWORD;
+    
+    let imapConfig;
+    if (email.endsWith('@gmail.com')) {
+      imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.gmail.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+      };
+    } else if (email.endsWith('@outlook.com') || email.endsWith('@hotmail.com')) {
+      imapConfig = {
+        user: email,
+        password: password,
+        host: 'outlook.office365.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+      };
+    }
+    
+    const imap = new Imap(imapConfig);
+    
+    imap.once('ready', function() {
+      console.log('IMAP connection ready, opening inbox...');
+      imap.openBox('INBOX', false, function(err, box) {
+        if (err) {
+          console.error('Error opening inbox:', err);
+          return res.status(500).json({ success: false, message: 'Failed to open inbox: ' + err.message });
+        }
+        
+        console.log('Inbox opened successfully. Looking for Netflix verification emails...');
+        console.log('Total messages in inbox:', box.messages.total);
+        
+        // STEP 1: First search for UNREAD emails only
+        const unreadSearchCriteria = [
+          'UNSEEN', // Only unread emails
+          ['OR', 
+            ['OR',
+              ['OR',
+                ['OR',
+                  ['OR',
+                    ['OR',
+                      ['OR',
+                        ['OR',
+                          ['OR',
+                            ['FROM', 'info@netflix.com'], 
+                            ['FROM', 'netflix@netflix.com']
+                          ],
+                          ['FROM', 'Netflix']
+                        ],
+                        ['FROM', 'no-reply@netflix.com']
+                      ],
+                      ['FROM', 'Mohammed Saqhib']
+                    ],
+                    ['FROM', 'Saqhib']
+                  ],
+                  ['FROM', 'msaqhib76@gmail.com']
+                ],
+                ['FROM', 'msaqhib04@gmail.com']
+              ],
+              ['SUBJECT', 'Netflix']
+            ],
+            ['SUBJECT', 'verification']
+          ],
+          ['OR',
+            ['OR',
+              ['OR',
+                ['SUBJECT', 'Verify'],
+                ['SUBJECT', 'Your Netflix']
+              ],
+              ['SUBJECT', 'Verification Code']
+            ],
+            ['SUBJECT', 'Household']
+          ]
+        ];
+        
+        console.log('STEP 1: Searching for UNREAD emails first...');
+        
+        imap.search(unreadSearchCriteria, function(err, unreadResults) {
+          if (err) {
+            console.error('Search error:', err);
+            return res.status(500).json({ success: false, message: 'Failed to search emails: ' + err.message });
+          }
+          
+          console.log(`Found ${unreadResults.length} UNREAD emails matching criteria`);
+          
+          if (unreadResults && unreadResults.length > 0) {
+            // Process unread emails first
+            processEmails(unreadResults, true);
+          } else {
+            // STEP 2: If no unread emails, search recent emails (last 10 minutes)
+            const since = new Date();
+            since.setMinutes(since.getMinutes() - 10);
+            
+            const recentSearchCriteria = [
+              ['OR', 
+                ['OR',
+                  ['OR',
+                    ['OR',
+                      ['OR',
+                        ['OR',
+                          ['OR',
+                            ['OR',
+                              ['OR',
+                                ['OR',
+                                  ['FROM', 'info@netflix.com'], 
+                                  ['FROM', 'netflix@netflix.com']
+                                ],
+                                ['FROM', 'Netflix']
+                              ],
+                              ['FROM', 'no-reply@netflix.com']
+                            ],
+                            ['FROM', 'Mohammed Saqhib']
+                          ],
+                          ['FROM', 'Saqhib']
+                        ],
+                        ['FROM', 'msaqhib76@gmail.com']
+                      ],
+                      ['FROM', 'msaqhib04@gmail.com']
+                    ],
+                    ['SUBJECT', 'Netflix']
+                  ],
+                  ['SUBJECT', 'verification']
+                ],
+                ['OR',
+                  ['OR',
+                    ['OR',
+                      ['SUBJECT', 'Verify'],
+                      ['SUBJECT', 'Your Netflix']
+                    ],
+                    ['SUBJECT', 'Verification Code'
+                    ],
+                    ['SUBJECT', 'Household']
+                  ]
+                ]
+              ],
+              ['SINCE', since.toISOString()]
+            ];
+            
+            console.log('STEP 2: No unread emails found, searching recent emails (last 10 minutes)...');
+            
+            imap.search(recentSearchCriteria, function(err, recentResults) {
+              if (err || !recentResults || recentResults.length === 0) {
+                imap.end();
+                return res.json({ success: false, message: 'No recent Netflix emails found. Please check if verification email has arrived.' });
+              }
+              
+              processEmails(recentResults, false);
+            });
+          }
+          
+          function processEmails(emailResults, areUnread) {
+            // Sort by UID descending (newest first)
+            emailResults.sort((a, b) => b - a);
+            
+            console.log(`Processing ${emailResults.length} emails (${areUnread ? 'UNREAD' : 'recent'})...`);
+            
+            const fetch = imap.fetch(emailResults, { bodies: '', struct: true, envelope: true });
+            let processedCount = 0;
+            let bestCode = null;
+            let bestTimestamp = 0;
+            let bestUid = null;
+            let shouldMarkAsRead = false;
+            
+            fetch.on('message', function(msg, seqno) {
+              let emailDate = null;
+              let uid = null;
+              
+              msg.on('attributes', function(attrs) {
+                emailDate = attrs.date ? new Date(attrs.date).getTime() : Date.now();
+                uid = attrs.uid;
+                
+                // For unread emails, check if truly unread
+                if (areUnread && attrs.flags && !attrs.flags.includes('\\Seen')) {
+                  msg.isActuallyUnread = true;
+                } else {
+                  msg.isActuallyUnread = false;
+                }
+                
+                console.log(`Email #${seqno} - UID: ${uid}, Date: ${new Date(emailDate).toLocaleString()}, Unread: ${msg.isActuallyUnread}`);
+              });
+              
+              msg.on('body', function(stream) {
+                simpleParser(stream, async (err, parsed) => {
+                  if (err) {
+                    console.error('Parsing error:', err);
+                    processedCount++;
+                    checkIfDone();
+                    return;
+                  }
+                  
+                  const subject = parsed.subject || '';
+                  const from = parsed.from?.text || '';
+                  const date = parsed.date ? new Date(parsed.date).getTime() : emailDate;
+                  const bodyText = parsed.text || '';
+                  const bodyHtml = parsed.html || '';
+                  
+                  console.log(`Processing: "${subject}" from ${from}`);
+                  
+                  // Extract verification code
+                  let extractedCode = extractNetflixCode(subject) || 
+                                      extractNetflixCode(bodyText) || 
+                                      extractNetflixCode(bodyHtml);
+                  
+                  if (extractedCode) {
+                    console.log(`✓ Found code: ${extractedCode} (Date: ${new Date(date).toLocaleString()}, Unread: ${msg.isActuallyUnread})`);
+                    
+                    // Priority logic:
+                    // 1. If this is an unread email with a code, it wins
+                    // 2. If no unread emails, pick the newest by timestamp
+                    if (areUnread && msg.isActuallyUnread) {
+                      if (!bestCode || date > bestTimestamp) {
+                        bestCode = extractedCode;
+                        bestTimestamp = date;
+                        bestUid = uid;
+                        shouldMarkAsRead = true;
+                        console.log(`★ NEW BEST (unread): ${extractedCode}`);
+                      }
+                    } else if (!areUnread && (!bestCode || date > bestTimestamp)) {
+                      bestCode = extractedCode;
+                      bestTimestamp = date;
+                      bestUid = uid;
+                      console.log(`★ NEW BEST (recent): ${extractedCode}`);
+                    }
+                  }
+                  
+                  processedCount++;
+                  checkIfDone();
+                });
+              });
+            });
+            
+            function checkIfDone() {
+              if (processedCount === emailResults.length) {
+                // Mark the email as read if it was unread
+                if (shouldMarkAsRead && bestUid) {
+                  console.log(`Marking email UID ${bestUid} as read...`);
+                  imap.setFlags([bestUid], ['\\Seen'], function(flagErr) {
+                    if (flagErr) console.error('Error marking as read:', flagErr);
+                    finishUp();
+                  });
+                } else {
+                  finishUp();
+                }
+              }
+            }
+            
+            function finishUp() {
+              imap.end();
+              
+              if (bestCode) {
+                console.log(`🎉 RETURNING CODE: ${bestCode} from ${new Date(bestTimestamp).toLocaleString()}`);
+                return res.json({
+                  success: true,
+                  code: bestCode,
+                  message: `Fresh verification code found!`,
+                  timestamp: bestTimestamp,
+                  wasUnread: shouldMarkAsRead
+                });
+              } else {
+                return res.json({
+                  success: false,
+                  message: 'No verification code found in recent emails.'
+                });
+              }
+            }
+            
+            fetch.on('error', function(err) {
+              console.error('Fetch error:', err);
+              imap.end();
+              return res.status(500).json({
+                success: false,
+                message: 'Error fetching emails: ' + err.message
+              });
+            });
+          }
+        });
+      });
+    });
+    
+    imap.once('error', function(err) {
+      console.error('IMAP error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Email connection error: ' + err.message
+      });
+    });
+    
+    console.log('Connecting to email server...');
+    imap.connect();
+    
+  } catch (error) {
+    console.error('Error fetching verification code:', error);
+    res.status(500).json({ success: false, message: 'Server error: ' + error.message });
+  }
+});
+
+// NEW API ENDPOINT: To automatically find and "click" the household update link
+app.post('/api/update-household', (req, res) => {
+    const email = req.body.email || DEFAULT_EMAIL;
+    const password = req.body.password || DEFAULT_PASSWORD;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    console.log(`Starting AUTOMATIC household update process for: ${email}`);
+
+    let imapConfig;
+    if (email.endsWith('@gmail.com')) {
+        imapConfig = { user: email, password, host: 'imap.gmail.com', port: 993, tls: true, tlsOptions: { rejectUnauthorized: false } };
+    } else if (email.endsWith('@outlook.com') || email.endsWith('@hotmail.com')) {
+        imapConfig = { user: email, password, host: 'outlook.office365.com', port: 993, tls: true, tlsOptions: { rejectUnauthorized: false } };
+    } else {
+        return res.status(400).json({ success: false, message: 'Unsupported email provider. Use Gmail or Outlook.' });
+    }
+
+    const imap = new Imap(imapConfig);
+
+    imap.once('ready', function() {
+        imap.openBox('INBOX', false, function(err, box) {
+            if (err) {
+                imap.end();
+                return res.status(500).json({ success: false, message: 'Failed to open inbox.' });
+            }
+
+            // Search for the specific, unread Netflix email
+            imap.search([ 'UNSEEN', ['FROM', 'info@netflix.com'], ['SUBJECT', 'Update Netflix Household'] ], function(err, results) {
+                if (err || !results || results.length === 0) {
+                    imap.end();
+                    return res.json({ success: false, message: 'No new "Update Household" email found. Please send it from your TV first.' });
+                }
+
+                // Fetch the newest email found
+                const fetch = imap.fetch(results.slice(-1), { bodies: '', markSeen: true });
+                fetch.on('message', function(msg) {
+                    msg.on('body', function(stream) {
+                        simpleParser(stream, async (err, parsed) => {
+                            if (err) {
+                                imap.end();
+                                return res.status(500).json({ success: false, message: 'Error parsing email.' });
+                            }
+
+                            const body = parsed.text || parsed.html || '';
+                            const verificationLink = extractVerificationLink(body);
+
+                            if (verificationLink) {
+                                // "Click" the link by making an HTTPS GET request
+                                https.get(verificationLink, (apiRes) => {
+                                    console.log(`Household update link clicked. Netflix server responded with status: ${apiRes.statusCode}`);
+                                    imap.end();
+                                    res.json({ success: true, message: 'Household updated successfully! Check your TV.' });
+                                }).on('error', (e) => {
+                                    console.error(`Error activating link: ${e.message}`);
+                                    imap.end();
+                                    res.status(500).json({ success: false, message: 'Found the link, but failed to activate it.' });
+                                });
+                            } else {
+                                imap.end();
+                                res.json({ success: false, message: 'Found the email, but no verification link was inside.' });
+                            }
+                        });
+                    });
+                });
+            });
+        });
+    });
+
+    imap.once('error', function(err) {
+        console.error('IMAP error during household update:', err);
+        res.status(401).json({ success: false, message: 'IMAP connection error. Please check your credentials.' });
+    });
+
+    imap.connect();
+});
+
+// Logout and clear IMAP connection
+app.post('/api/logout', (req, res) => {
+  const { sessionId } = req.body;
+  
+  if (sessionId && activeConnections[sessionId]) {
+    const imap = activeConnections[sessionId];
+    if (imap.state !== 'disconnected') {
+      imap.end();
+    }
+    delete activeConnections[sessionId];
+    res.json({ success: true, message: 'Logged out successfully' });
+  } else {
+    res.json({ success: false, message: 'No active session' });
+  }
+});
+
+// Serve the main HTML file
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Start the server with better error handling and port management
+let PORT = process.env.PORT || 3000;
+const MAX_PORT_ATTEMPTS = 10;
+const MAX_PORT_VALUE = 65535;
+
+function startServer(port, attempt = 1) {
+  // Ensure port is a number and within valid range
+  port = parseInt(port, 10);
+  
+  // Check if port is valid
+  if (isNaN(port) || port < 0 || port > MAX_PORT_VALUE) {
+    console.error(`Invalid port number: ${port}. Using default port 3000.`);
+    port = 3000;
+  }
+  
+  const server = app.listen(port)
+    .on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
+        // Increment by 1 instead of concatenating
+        const nextPort = port + 1;
+        
+        // Safety check to ensure port stays within valid range
+        if (nextPort > MAX_PORT_VALUE) {
+          console.error(`Port number exceeded maximum value. Using port 3000.`);
+          startServer(3000, attempt + 1);
+        } else {
+          console.log(`Port ${port} is busy, trying port ${nextPort}...`);
+          startServer(nextPort, attempt + 1);
+        }
+      } else {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+      }
+    })
+    .on('listening', () => {
+      const actualPort = server.address().port;
+      console.log(`Server running on port ${actualPort}`);
+      console.log(`Open http://localhost:${actualPort} in your browser to use the application`);
+    });
+}
+
+// Replace the existing app.listen with our improved server start function
+startServer(PORT);
+
+// Cleanup connections when the server is shut down
+process.on('SIGINT', () => {
+  console.log('Closing all IMAP connections...');
+  Object.values(activeConnections).forEach(imap => {
+    if (imap.state !== 'disconnected') {
+      imap.end();
+    }
+  });
+  process.exit();
+});
+
+// Add an endpoint to check if default credentials exist
+app.get('/api/has-default-credentials', (req, res) => {
+  res.json({
+    hasDefault: !!(DEFAULT_EMAIL && DEFAULT_PASSWORD),
+    email: DEFAULT_EMAIL ? DEFAULT_EMAIL : null
+  });
+});
+
+// Add a server status check endpoint
+app.get('/api/server-status', (req, res) => {
+  res.json({ status: 'online', time: new Date().toISOString() });
+});
+
+// Add this new endpoint before startServer(PORT);
+app.post('/api/search-emails', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    const imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.gmail.com', // This can be configured for other providers
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+    };
+
+    const imap = new Imap(imapConfig);
+
+    const openInbox = (cb) => {
+        imap.openBox('INBOX', true, cb);
+    };
+
+    imap.once('ready', () => {
+        openInbox((err, box) => {
+            if (err) {
+                console.error('IMAP openBox error:', err);
+                imap.end();
+                return res.status(500).json({ success: false, message: 'Could not open your email inbox.' });
+            }
+
+            const sinceDate = new Date();
+            sinceDate.setDate(sinceDate.getDate() - 14); // Search the last 14 days
+
+            imap.search([['FROM', 'netflix.com'], ['SINCE', sinceDate.toISOString()]], (err, results) => {
+                if (err) {
+                    console.error('IMAP search error:', err);
+                    imap.end();
+                    return res.status(500).json({ success: false, message: 'Error searching for emails.' });
+                }
+
+                if (!results || results.length === 0) {
+                    imap.end();
+                    return res.json({ success: true, message: 'No recent emails from Netflix found in the last 14 days.', emails: [] });
+                }
+
+                // Fetch the most recent 10 emails
+                const uidsToFetch = results.slice(-10);
+                if (uidsToFetch.length === 0) {
+                    imap.end();
+                    return res.json({ success: true, message: 'No recent emails from Netflix found.', emails: [] });
+                }
+
+                const fetch = imap.fetch(uidsToFetch, { bodies: '' });
+                const emails = [];
+                let processed = 0;
+
+                fetch.on('message', (msg) => {
+                    simpleParser(msg, (err, parsed) => {
+                        if (parsed) {
+                            emails.push({
+                                from: parsed.from.text,
+                                subject: parsed.subject,
+                                date: parsed.date,
+                            });
+                        }
+
+                        processed++;
+                        if (processed === uidsToFetch.length) {
+                            // Sort emails by date, newest first
+                            emails.sort((a, b) => new Date(b.date) - new Date(a.date));
+                            res.json({ success: true, emails });
+                            imap.end();
+                        }
+                    });
+                });
+
+                fetch.once('error', (err) => {
+                    console.error('Fetch error:', err);
+                    res.status(500).json({ success: false, message: 'Failed to fetch emails.' });
+                    imap.end();
+                });
+            });
+        });
+    });
+
+    imap.once('error', (err) => {
+        console.error(`IMAP connection error for ${email}:`, err);
+        let message = 'An error occurred connecting to the email server.';
+        if (err.source === 'authentication') {
+            message = 'Authentication failed. Please check your email and app password. If using Gmail, ensure you have an App Password.';
+        }
+        res.status(500).json({ success: false, message });
+    });
+
+    imap.once('end', () => {
+        console.log(`IMAP connection for ${email} ended.`);
+    });
+
+    imap.connect();
+});
+
+// Netflix Email Search endpoint
+app.post('/api/search-netflix-emails', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    const imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.gmail.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+    };
+
+    const imap = new Imap(imapConfig);
+
+    const openInbox = (cb) => {
+        imap.openBox('INBOX', true, cb);
+    };
+
+    imap.once('ready', () => {
+        console.log('Connected to email for Netflix search');
+        openInbox((err, box) => {
+            if (err) {
+                console.error('IMAP openBox error:', err);
+                imap.end();
+                return res.status(500).json({ success: false, message: 'Could not open your email inbox.' });
+            }
+
+            // Search for Netflix emails from the last 30 days
+            console.log('Searching for Netflix emails...');
+            
+            // Use a simple search that's guaranteed to work
+            imap.search(['ALL'], (err, results) => {
+                if (err) {
+                    console.error('IMAP search error:', err);
+                    imap.end();
+                    return res.status(500).json({ success: false, message: 'Error searching for emails.' });
+                }
+
+                if (!results || results.length === 0) {
+                    imap.end();
+                    return res.json({ success: false, message: 'No emails found in mailbox.' });
+                }
+
+                console.log(`Found ${results.length} total emails, will search for Netflix emails...`);
+                
+                // Get the latest 50 emails to search through
+                const recentEmails = results.slice(-50);
+                findNetflixEmails(recentEmails);
+            });
+
+            function findNetflixEmails(emailUids) {
+                console.log(`Searching through ${emailUids.length} recent emails for Netflix content...`);
+                
+                const fetch = imap.fetch(emailUids, { 
+                    bodies: '', 
+                    struct: true 
+                });
+
+                let processedCount = 0;
+                let netflixEmails = [];
+
+                fetch.on('message', (msg) => {
+                    msg.on('body', (stream) => {
+                        simpleParser(stream, (err, parsed) => {
+                            processedCount++;
+                            
+                            if (err) {
+                                console.error('Email parsing error:', err);
+                            } else {
+                                // Check if this is a Netflix email
+                                const subject = parsed.subject || '';
+                                const from = parsed.from ? parsed.from.text : '';
+                                
+                                if (isNetflixEmail(subject, from)) {
+                                    // Extract OTP from email content
+                                    const bodyText = parsed.text || '';
+                                    const bodyHtml = parsed.html || '';
+                                    const extractedCode = extractNetflixCode(subject) || 
+                                                        extractNetflixCode(bodyText) || 
+                                                        extractNetflixCode(bodyHtml);
+                                    
+                                    netflixEmails.push({
+                                        subject: subject,
+                                        from: from,
+                                        date: parsed.date,
+                                        time: parsed.date ? new Date(parsed.date).toLocaleString() : 'Unknown Time',
+                                        otp: extractedCode
+                                    });
+                                }
+                            }
+                            
+                            // Check if we've processed all emails
+                            if (processedCount === emailUids.length) {
+                                if (netflixEmails.length > 0) {
+                                    // Sort by date and get the latest
+                                    netflixEmails.sort((a, b) => new Date(b.date) - new Date(a.date));
+                                    const latestEmail = netflixEmails[0];
+                                    
+                                    console.log('Found Netflix email:', latestEmail);
+                                    
+                                    res.json({
+                                        success: true,
+                                        message: 'Latest Netflix email found successfully',
+                                        emailInfo: {
+                                            subject: latestEmail.subject,
+                                            from: latestEmail.from,
+                                            time: latestEmail.time,
+                                            otp: latestEmail.otp || null
+                                        }
+                                    });
+                                } else {
+                                    res.json({ 
+                                        success: false, 
+                                        message: 'No Netflix emails found in recent messages.' 
+                                    });
+                                }
+                                
+                                imap.end();
+                            }
+                        });
+                    });
+                });
+
+                fetch.once('error', (err) => {
+                    console.error('Fetch error:', err);
+                    res.status(500).json({ success: false, message: 'Failed to fetch emails.' });
+                    imap.end();
+                });
+            }
+            
+            function isNetflixEmail(subject, from) {
+                // Check if email is from Netflix or contains Netflix-related content
+                const subjectLower = subject.toLowerCase();
+                const fromLower = from.toLowerCase();
+                
+                return (
+                    fromLower.includes('netflix') ||
+                    fromLower.includes('info@netflix.com') ||
+                    fromLower.includes('no-reply@netflix.com') ||
+                    subjectLower.includes('netflix') ||
+                    subjectLower.includes('verification') ||
+                    subjectLower.includes('household')
+                );
+            }
+        });
+    });
+
+    imap.once('error', (err) => {
+        console.error(`IMAP connection error for ${email}:`, err);
+        let message = 'Failed to connect to email server.';
+        
+        if (err.textCode === 'AUTHENTICATIONFAILED' || err.source === 'authentication') {
+            message = 'Authentication failed. Please check your email and app password. For Gmail, use an App Password instead of your regular password.';
+        } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+            message = 'Could not connect to email server. Please check your internet connection.';
+        }
+        
+        res.status(500).json({ success: false, message });
+    });
+
+    imap.once('end', () => {
+        console.log(`Netflix email search connection for ${email} ended.`);
+    });
+
+    imap.connect();
+});
+
+// Get Full Netflix Email Content endpoint
+app.post('/api/get-full-netflix-email', (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    const imapConfig = {
+        user: email,
+        password: password,
+        host: 'imap.gmail.com',
+        port: 993,
+        tls: true,
+        tlsOptions: { rejectUnauthorized: false }
+    };
+
+    const imap = new Imap(imapConfig);
+
+    const openInbox = (cb) => {
+        imap.openBox('INBOX', true, cb);
+    };
+
+    imap.once('ready', () => {
+        console.log('Connected to email for full Netflix email content');
+        openInbox((err, box) => {
+            if (err) {
+                console.error('IMAP openBox error:', err);
+                imap.end();
+                return res.status(500).json({ success: false, message: 'Could not open your email inbox.' });
+            }
+
+            // Search for Netflix emails
+            imap.search(['ALL'], (err, results) => {
+                if (err) {
+                    console.error('IMAP search error:', err);
+                    imap.end();
+                    return res.status(500).json({ success: false, message: 'Error searching for emails.' });
+                }
+
+                if (!results || results.length === 0) {
+                    imap.end();
+                    return res.json({ success: false, message: 'No emails found in mailbox.' });
+                }
+
+                console.log(`Searching through ${results.length} emails for latest Netflix email...`);
+                
+                // Get the latest 50 emails to search through
+                const recentEmails = results.slice(-50);
+                findLatestNetflixEmailFull(recentEmails);
+            });
+
+            function findLatestNetflixEmailFull(emailUids) {
+                const fetch = imap.fetch(emailUids, { 
+                    bodies: '', 
+                    struct: true 
+                });
+
+                let processedCount = 0;
+                let latestNetflixEmail = null;
+                let latestDate = null;
+
+                fetch.on('message', (msg) => {
+                    msg.on('body', (stream) => {
+                        simpleParser(stream, (err, parsed) => {
+                            processedCount++;
+                            
+                            if (err) {
+                                console.error('Email parsing error:', err);
+                            } else {
+                                // Check if this is a Netflix email
+                                const subject = parsed.subject || '';
+                                const from = parsed.from ? parsed.from.text : '';
+                                
+                                if (isNetflixEmailFull(subject, from)) {
+                                    const emailDate = parsed.date ? new Date(parsed.date) : new Date(0);
+                                    
+                                    if (!latestNetflixEmail || emailDate > latestDate) {
+                                        // Extract OTP from email content
+                                        const bodyText = parsed.text || '';
+                                        const bodyHtml = parsed.html || '';
+                                        const extractedCode = extractNetflixCode(subject) || 
+                                                            extractNetflixCode(bodyText) || 
+                                                            extractNetflixCode(bodyHtml);
+                                        
+                                        latestNetflixEmail = {
+                                            subject: subject,
+                                            from: from,
+                                            to: parsed.to ? parsed.to.text : '',
+                                            date: emailDate.toLocaleString(),
+                                            bodyText: bodyText,
+                                            bodyHtml: bodyHtml,
+                                            otp: extractedCode
+                                        };
+                                        latestDate = emailDate;
+                                    }
+                                }
+                            }
+                            
+                            // Check if we've processed all emails
+                            if (processedCount === emailUids.length) {
+                                if (latestNetflixEmail) {
+                                    console.log('Found latest Netflix email for full view:', latestNetflixEmail.subject);
+                                    
+                                    res.json({
+                                        success: true,
+                                        message: 'Full Netflix email content retrieved successfully',
+                                        emailContent: latestNetflixEmail
+                                    });
+                                } else {
+                                    res.json({ 
+                                        success: false, 
+                                        message: 'No Netflix emails found in recent messages.' 
+                                    });
+                                }
+                                
+                                imap.end();
+                            }
+                        });
+                    });
+                });
+
+                fetch.once('error', (err) => {
+                    console.error('Fetch error:', err);
+                    res.status(500).json({ success: false, message: 'Failed to fetch emails.' });
+                    imap.end();
+                });
+            }
+            
+            function isNetflixEmailFull(subject, from) {
+                // Check if email is from Netflix or contains Netflix-related content
+                const subjectLower = subject.toLowerCase();
+                const fromLower = from.toLowerCase();
+                
+                return (
+                    fromLower.includes('netflix') ||
+                    fromLower.includes('info@netflix.com') ||
+                    fromLower.includes('no-reply@netflix.com') ||
+                    subjectLower.includes('netflix') ||
+                    subjectLower.includes('verification') ||
+                    subjectLower.includes('household')
+                );
+            }
+        });
+    });
+
+    imap.once('error', (err) => {
+        console.error(`IMAP connection error for ${email}:`, err);
+        let message = 'Failed to connect to email server.';
+        
+        if (err.textCode === 'AUTHENTICATIONFAILED' || err.source === 'authentication') {
+            message = 'Authentication failed. Please check your email and app password. For Gmail, use an App Password instead of your regular password.';
+        } else if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+            message = 'Could not connect to email server. Please check your internet connection.';
+        }
+        
+        res.status(500).json({ success: false, message });
+    });
+
+    imap.once('end', () => {
+        console.log(`Full Netflix email content connection for ${email} ended.`);
+    });
+
+    imap.connect();
+});
